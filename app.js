@@ -1,36 +1,155 @@
-const SUPABASE_URL="https://dxtljclujkxczljotoyc.supabase.co";
-const SUPABASE_ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR4dGxqY2x1amt4Y3psam90b3ljIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk3NDQ4NTUsImV4cCI6MjEwNTMyMDg1NX0.vomNe7a15tEnDsQ2892_6xuDWxFQ0e3wxYgNgcFtpCc";
-const sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
+/* UtsavOne / Festival OS
+   GitHub Pages + Supabase build.
+   The Supabase URL is public; use only an anon/publishable key here.
+*/
+const SUPABASE_URL = "https://dxtljclujkxczljotoyc.supabase.co";
+const SUPABASE_ANON_KEY = "YOUR_UTSAVONE_ANON_KEY_HERE";
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
-const state={festivals:JSON.parse(localStorage.getItem("fos_festivals")||"[]"),members:JSON.parse(localStorage.getItem("fos_members")||"[]"),events:JSON.parse(localStorage.getItem("fos_events")||"[]"),donations:JSON.parse(localStorage.getItem("fos_donations")||"[]"),expenses:JSON.parse(localStorage.getItem("fos_expenses")||"[]"),tasks:JSON.parse(localStorage.getItem("fos_tasks")||"[]"),page:"Dashboard",festivalId:null};
+let session = null;
+
+const state = {festivals:JSON.parse(localStorage.getItem("fos_festivals")||"[]"),members:JSON.parse(localStorage.getItem("fos_members")||"[]"),events:JSON.parse(localStorage.getItem("fos_events")||"[]"),donations:JSON.parse(localStorage.getItem("fos_donations")||"[]"),expenses:JSON.parse(localStorage.getItem("fos_expenses")||"[]"),tasks:JSON.parse(localStorage.getItem("fos_tasks")||"[]"),page:"Dashboard",festivalId:null};
 if(!state.festivals.length){state.festivals=[{id:crypto.randomUUID(),name:"Dussehra",year:2026,location:"Penugonda",status:"Active"}];}
 state.festivalId=state.festivals[0]?.id||null;
-function save(){for(const k of ["festivals","members","events","donations","expenses","tasks"])localStorage.setItem("fos_"+k,JSON.stringify(state[k])); syncFestivals();}
+
+function save(){
+  for(const k of ["festivals","members","events","donations","expenses","tasks"])
+    localStorage.setItem("fos_"+k,JSON.stringify(state[k]));
+}
+
 async function syncFestivals(){
+  if(!session || !state.festivals.length) return;
   try{
-    const rows=state.festivals.map(f=>({name:f.name,festival_year:Number(f.year),location:f.location||null,type:f.type||"Custom",status:f.status||"Active",is_active:f.status!=="Inactive"}));
-    for(const row of rows){
+    // The UtsavOne festivals table does NOT have a "status" column.
+    // Store only columns that exist in the current schema.
+    for(const f of state.festivals){
+      const row={
+        name:String(f.name||"Festival"),
+        festival_year:Number(f.year||new Date().getFullYear()),
+        location:f.location||null,
+        is_active:f.status!=="Inactive"
+      };
       const {error}=await sb.from("festivals").upsert(row,{onConflict:"name,festival_year"});
       if(error) throw error;
     }
-  }catch(e){console.warn("UtsavOne Supabase sync unavailable:",e.message||e);}
+  }catch(e){
+    console.warn("UtsavOne Supabase festival sync unavailable:",e.message||e);
+  }
 }
+
 async function loadFestivalsFromSupabase(){
+  if(!session) return;
   try{
-    const {data,error}=await sb.from("festivals").select("*").order("priority",{ascending:true}).order("festival_date",{ascending:true});
+    const {data,error}=await sb.from("festivals")
+      .select("*")
+      .eq("is_active",true)
+      .order("priority",{ascending:true})
+      .order("festival_date",{ascending:true});
     if(error) throw error;
-    if(Array.isArray(data)&&data.length){
-      state.festivals=data.map(f=>({...f,id:String(f.id),year:Number(f.festival_year??f.year??new Date().getFullYear()),status:f.status||"Active",location:f.location||""}));
+    if(Array.isArray(data) && data.length){
+      state.festivals=data.map(f=>({
+        ...f,
+        id:String(f.id),
+        year:Number(f.festival_year??new Date().getFullYear()),
+        status:f.is_active===false?"Inactive":"Active",
+        location:f.location||""
+      }));
       state.festivalId=state.festivals[0]?.id||null;
       localStorage.setItem("fos_festivals",JSON.stringify(state.festivals));
-    }else{await syncFestivals();}
-  }catch(e){console.warn("UtsavOne Supabase load unavailable:",e.message||e);}
+    }else{
+      await syncFestivals();
+    }
+  }catch(e){
+    console.warn("UtsavOne Supabase festival load unavailable:",e.message||e);
+  }
 }
+
+function authHtml(message=""){
+  return `<div class="auth-screen">
+    <div class="auth-card">
+      <div class="auth-logo">🎉</div>
+      <h1>UtsavOne</h1>
+      <p class="muted">Festival Management System</p>
+      <div id="auth-message" class="${message?"auth-message":"auth-message hidden"}">${esc(message)}</div>
+
+      <form id="login-form" class="form" onsubmit="event.preventDefault();loginUser(this)">
+        <label>Email<input name="email" type="email" autocomplete="email" required placeholder="Enter email"></label>
+        <label>Password<input name="password" type="password" autocomplete="current-password" minlength="6" required placeholder="Enter password"></label>
+        <button class="primary auth-submit">Login</button>
+      </form>
+
+      <div class="auth-divider"><span>New user?</span></div>
+
+      <form id="signup-form" class="form" onsubmit="event.preventDefault();signupUser(this)">
+        <label>Full Name<input name="name" autocomplete="name" required placeholder="Your name"></label>
+        <label>Email<input name="email" type="email" autocomplete="email" required placeholder="Enter email"></label>
+        <label>Password<input name="password" type="password" autocomplete="new-password" minlength="6" required placeholder="Create password"></label>
+        <button class="secondary auth-submit">Create Account</button>
+      </form>
+    </div>
+  </div>`;
+}
+
+async function loginUser(form){
+  const btn=form.querySelector("button");
+  btn.disabled=true; btn.textContent="Signing in...";
+  const {data,error}=await sb.auth.signInWithPassword({
+    email:form.email.value.trim(),
+    password:form.password.value
+  });
+  btn.disabled=false; btn.textContent="Login";
+  if(error){showAuthError(error.message);return;}
+  session=data.session;
+  await bootApp();
+}
+
+async function signupUser(form){
+  const btn=form.querySelector("button");
+  btn.disabled=true; btn.textContent="Creating...";
+  const {data,error}=await sb.auth.signUp({
+    email:form.email.value.trim(),
+    password:form.password.value,
+    options:{data:{full_name:form.name.value.trim()}}
+  });
+  btn.disabled=false; btn.textContent="Create Account";
+  if(error){showAuthError(error.message);return;}
+  if(data.session){
+    session=data.session;
+    await bootApp();
+  }else{
+    showAuthError("Account created. Check your email to verify the account, then log in.");
+  }
+}
+
+function showAuthError(message){
+  const el=document.querySelector("#auth-message");
+  if(el){el.textContent=message;el.classList.remove("hidden");}
+}
+
+async function logoutUser(){
+  await sb.auth.signOut();
+  session=null;
+  document.querySelector("#app").innerHTML=authHtml("You have been logged out.");
+}
+
+function userEmail(){
+  return session?.user?.email||"";
+}
+
+async function bootApp(){
+  await loadFestivalsFromSupabase();
+  render();
+  // Keep local changes synchronized without blocking the UI.
+  syncFestivals();
+}
+
 function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function current(){return state.festivals.find(x=>x.id===state.festivalId)||state.festivals[0]}
 function money(n){return "₹"+Number(n||0).toLocaleString("en-IN")}
 function nav(){return ["Dashboard","Festivals","Members","Committee","Events","Volunteers","Donations","Expenses","Tasks","Registrations","Attendance","Reports","Gallery","Documents","Automation","Settings"]}
-function render(){document.querySelector("#app").innerHTML=`<div class="shell"><aside class="sidebar"><div class="brand">🎉 Festival OS</div><div class="nav">${nav().map(x=>`<button class="${state.page===x?"active":""}" onclick="go('${x}')">${icon(x)} ${x}</button>`).join("")}</div></aside><main class="main"><div class="top"><div><h1>${esc(state.page)}</h1><div class="muted">${esc(current().name)} ${current().year} • ${esc(current().location)}</div></div><div><button class="secondary" onclick="newFestival()">＋ Festival</button></div></div>${pageHtml()}</main><div class="mobilebar">${["Dashboard","Members","Events","Reports"].map(x=>`<button onclick="go('${x}')">${icon(x)}<br>${x}</button>`).join("")}</div></div>`}
+function render(){
+  if(!session){document.querySelector("#app").innerHTML=authHtml();return;}
+  document.querySelector("#app").innerHTML=`<div class="shell"><aside class="sidebar"><div class="brand">🎉 Festival OS</div><div class="nav">${nav().map(x=>`<button class="${state.page===x?"active":""}" onclick="go('${x}')">${icon(x)} ${x}</button>`).join("")}</div></aside><main class="main"><div class="top"><div><h1>${esc(state.page)}</h1><div class="muted">${esc(current().name)} ${current().year} • ${esc(current().location)}</div></div><div class="top-actions"><span class="user-email">${esc(userEmail())}</span><button class="secondary" onclick="newFestival()">＋ Festival</button><button class="secondary" onclick="logoutUser()">Logout</button></div></div>${pageHtml()}</main><div class="mobilebar">${["Dashboard","Members","Events","Reports"].map(x=>`<button onclick="go('${x}')">${icon(x)}<br>${x}</button>`).join("")}</div></div>`}
 function icon(x){return ({Dashboard:"⌂",Festivals:"🎉",Members:"👥",Committee:"🏛️",Events:"📅",Volunteers:"🤝",Donations:"💰",Expenses:"💸",Tasks:"✓",Registrations:"🎟️",Attendance:"▣",Reports:"📊",Gallery:"📷",Documents:"📄",Automation:"⚡",Settings:"⚙️"})[x]||"•"}
 function go(p){state.page=p;render()}
 function pageHtml(){switch(state.page){case"Dashboard":return dashboard();case"Festivals":return festivals();case"Members":return members();case"Committee":return committee();case"Events":return events();case"Donations":return donations();case"Expenses":return expenses();case"Tasks":return tasks();case"Reports":return reports();default:return generic(state.page)}}
@@ -62,4 +181,15 @@ function addTask(){modal("Add Task",`<form class="form" onsubmit="event.preventD
 function createTask(f){state.tasks.push({id:crypto.randomUUID(),name:f.name.value,assigned:f.assigned.value,due:f.due.value,status:f.status.value});save();closeModal();toast("Task saved");render()}
 function downloadReport(){let blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="festival-os-report.json";a.click();URL.revokeObjectURL(a.href)}
 function toast(s){let d=document.createElement("div");d.className="toast";d.textContent=s;document.body.appendChild(d);setTimeout(()=>d.remove(),1800)}
-(async()=>{await loadFestivalsFromSupabase();render()})()
+
+(async function startUtsavOne(){
+  const {data:{session:currentSession}} = await sb.auth.getSession();
+  session=currentSession;
+  sb.auth.onAuthStateChange((_event,newSession)=>{
+    session=newSession;
+    if(session) bootApp();
+    else document.querySelector("#app").innerHTML=authHtml();
+  });
+  if(session) await bootApp();
+  else document.querySelector("#app").innerHTML=authHtml();
+})();
