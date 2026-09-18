@@ -3,7 +3,7 @@
    The Supabase URL is public; use only an anon/publishable key here.
 */
 const SUPABASE_URL = "https://dxtljclujkxczljotoyc.supabase.co";
-const SUPABASE_ANON_KEY = "YOUR_UTSAVONE_ANON_KEY_HERE";
+const SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR4dGxqY2x1amt4Y3psam90b3ljIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk3NDQ4NTUsImV4cCI6MjEwNTMyMDg1NX0.vomNe7a15tEnDsQ2892_6xuDWxFQ0e3wxYgNgcFtpCc";
 const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
 let session = null;
