@@ -1,7 +1,31 @@
+const SUPABASE_URL="https://dxtljclujkxczljotoyc.supabase.co";
+const SUPABASE_ANON_KEY="YOUR_UTSAVONE_ANON_KEY_HERE";
+const sb=window.supabase.createClient(SUPABASE_URL,SUPABASE_ANON_KEY);
+
 const state={festivals:JSON.parse(localStorage.getItem("fos_festivals")||"[]"),members:JSON.parse(localStorage.getItem("fos_members")||"[]"),events:JSON.parse(localStorage.getItem("fos_events")||"[]"),donations:JSON.parse(localStorage.getItem("fos_donations")||"[]"),expenses:JSON.parse(localStorage.getItem("fos_expenses")||"[]"),tasks:JSON.parse(localStorage.getItem("fos_tasks")||"[]"),page:"Dashboard",festivalId:null};
-if(!state.festivals.length){state.festivals=[{id:crypto.randomUUID(),name:"Dussehra",year:2026,location:"Penugonda",status:"Active"}];save()}
-state.festivalId=state.festivals[0].id;
-function save(){for(const k of ["festivals","members","events","donations","expenses","tasks"])localStorage.setItem("fos_"+k,JSON.stringify(state[k]))}
+if(!state.festivals.length){state.festivals=[{id:crypto.randomUUID(),name:"Dussehra",year:2026,location:"Penugonda",status:"Active"}];}
+state.festivalId=state.festivals[0]?.id||null;
+function save(){for(const k of ["festivals","members","events","donations","expenses","tasks"])localStorage.setItem("fos_"+k,JSON.stringify(state[k])); syncFestivals();}
+async function syncFestivals(){
+  try{
+    const rows=state.festivals.map(f=>({name:f.name,festival_year:Number(f.year),location:f.location||null,type:f.type||"Custom",status:f.status||"Active",is_active:f.status!=="Inactive"}));
+    for(const row of rows){
+      const {error}=await sb.from("festivals").upsert(row,{onConflict:"name,festival_year"});
+      if(error) throw error;
+    }
+  }catch(e){console.warn("UtsavOne Supabase sync unavailable:",e.message||e);}
+}
+async function loadFestivalsFromSupabase(){
+  try{
+    const {data,error}=await sb.from("festivals").select("*").order("priority",{ascending:true}).order("festival_date",{ascending:true});
+    if(error) throw error;
+    if(Array.isArray(data)&&data.length){
+      state.festivals=data.map(f=>({...f,id:String(f.id),year:Number(f.festival_year??f.year??new Date().getFullYear()),status:f.status||"Active",location:f.location||""}));
+      state.festivalId=state.festivals[0]?.id||null;
+      localStorage.setItem("fos_festivals",JSON.stringify(state.festivals));
+    }else{await syncFestivals();}
+  }catch(e){console.warn("UtsavOne Supabase load unavailable:",e.message||e);}
+}
 function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
 function current(){return state.festivals.find(x=>x.id===state.festivalId)||state.festivals[0]}
 function money(n){return "₹"+Number(n||0).toLocaleString("en-IN")}
@@ -38,4 +62,4 @@ function addTask(){modal("Add Task",`<form class="form" onsubmit="event.preventD
 function createTask(f){state.tasks.push({id:crypto.randomUUID(),name:f.name.value,assigned:f.assigned.value,due:f.due.value,status:f.status.value});save();closeModal();toast("Task saved");render()}
 function downloadReport(){let blob=new Blob([JSON.stringify(state,null,2)],{type:"application/json"}),a=document.createElement("a");a.href=URL.createObjectURL(blob);a.download="festival-os-report.json";a.click();URL.revokeObjectURL(a.href)}
 function toast(s){let d=document.createElement("div");d.className="toast";d.textContent=s;document.body.appendChild(d);setTimeout(()=>d.remove(),1800)}
-render()
+(async()=>{await loadFestivalsFromSupabase();render()})()
